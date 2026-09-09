@@ -2870,6 +2870,30 @@ function test_wasm_scanner_parse_document_records() {
         wasm_scanner.set_probe_chars_for_tests(restore_probe_chars);
     }
 
+    // 3c. The same document object parsed again after an edit. The scanner keeps the encoded bytes of the last
+    // document it saw in wasm memory and reuses them when the object and version match, so an edit that keeps the
+    // text length must still be re-encoded.
+    let mutating_doc = new VscodeDocumentTestDouble(['aaa,bbb', 'ccc,ddd', 'eee,fff']);
+    let edits = [
+        ['aaa,bbb', 'ccc,ddd', 'eee,fff'],
+        ['aaa,bbb', 'cXc,ddd', 'eee,fff'],   // same length, different content
+        ['aaa,bbb', 'cc,ddd', 'eee,fff'],    // shorter
+        ['aaa,bbb', '"q,q",ddd', 'eee,fff'], // longer, and now quoted
+        ['aaa,bbb,ccc', 'ddd,eee,fff'],      // different shape entirely
+    ];
+    let reuses_before_edits = wasm_scanner.get_stats().encode_reuses;
+    for (let edit of edits) {
+        mutating_doc.lines_buffer = edit;
+        mutating_doc.lineCount = edit.length;
+        mutating_doc.version += 1;
+        for (let args of extension_arg_combos) {
+            // Twice in a row: the second parse is the one allowed to reuse the encoded bytes.
+            compare_paths(mutating_doc, ',', 'quoted', args, JSON.stringify({edit: edit, version: mutating_doc.version, args: args}));
+            compare_paths(mutating_doc, ',', 'quoted', args, JSON.stringify({edit: edit, version: mutating_doc.version, args: args, second: true}));
+        }
+    }
+    assert(wasm_scanner.get_stats().encode_reuses > reuses_before_edits, 'the encoding cache was never reused');
+
     // 4. Inputs the scanner must refuse (return null) so that the JS path handles them.
     let refused_doc = new VscodeDocumentTestDouble(['a,b', 'c,d']);
     assert.equal(null, wasm_scanner.parse_document_records(refused_doc, ',', 'simple', null, true, -1, true, true, false, -1, false));

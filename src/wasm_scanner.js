@@ -22,9 +22,33 @@ const OUT_SLACK = 64; // The scanner checks the output capacity once per 64-byte
 
 let wasm = null; // {exports, in_ptr, in_cap, out_ptr, out_cap}
 let load_error = null;
-let stats = {loaded: false, load_error: null, calls: 0, fallbacks: 0, scanned_bytes: 0, scan_ms: 0, probe_scans: 0, probe_hits: 0};
+let stats = {loaded: false, load_error: null, calls: 0, fallbacks: 0, scanned_bytes: 0, scan_ms: 0, probe_scans: 0, probe_hits: 0, encode_reuses: 0};
 let probe_chars = 128 * 1024; // Prefix scanned first when the caller can stop early, see parse_document_records().
 let text_encoder = (typeof TextEncoder !== 'undefined') ? new TextEncoder() : null;
+let cached_encoding = null; // {doc_ref, version, num_bytes}: what the input buffer currently holds, see scan_text().
+const weak_ref_supported = (typeof WeakRef !== 'undefined');
+
+
+function encoding_cache_hit(document, text) {
+    // Two parses of the same unchanged document should encode it only once. getText() returns a fresh string every
+    // time, so string identity is useless here. Keying on the document object plus its version is safe: a different
+    // document is a different object, and any edit bumps the version. Never key on (fileName, version): two distinct
+    // documents can share both.
+    if (cached_encoding === null || document === null || typeof document.version !== 'number') {
+        return false;
+    }
+    return cached_encoding.doc_ref.deref() === document && cached_encoding.version === document.version &&
+           cached_encoding.text_length === text.length;
+}
+
+
+function remember_encoding(document, text, num_bytes) {
+    if (!weak_ref_supported || !document || typeof document.version !== 'number') {
+        cached_encoding = null;
+        return;
+    }
+    cached_encoding = {doc_ref: new WeakRef(document), version: document.version, text_length: text.length, num_bytes: num_bytes};
+}
 
 
 function read_wasm_bytes() {
@@ -48,7 +72,7 @@ function ensure_loaded() {
         }
         let wasm_bytes = read_wasm_bytes();
         let instance = new WebAssembly.Instance(new WebAssembly.Module(wasm_bytes), {});
-        wasm = {exports: instance.exports, in_ptr: 0, in_cap: 0, out_ptr: 0, out_cap: 0};
+        wasm = {exports: instance.exports, in_ptr: 0, in_cap: 0, out_ptr: 0, out_cap: 0, probe_ptr: 0, probe_cap: 0};
         stats.loaded = true;
     } catch (e) {
         load_error = e;
@@ -69,7 +93,20 @@ function get_stats() {
 }
 
 
-function reserve_input(num_bytes) {
+function reserve_input(num_bytes, use_probe_buffer) {
+    // The probe has a buffer of its own so that a probe never destroys the encoded document the input buffer holds,
+    // which is what makes the encoding cache in scan_text() worth having.
+    if (use_probe_buffer) {
+        if (num_bytes <= wasm.probe_cap) {
+            return;
+        }
+        if (wasm.probe_cap > 0) {
+            wasm.exports.wasm_free(wasm.probe_ptr, wasm.probe_cap);
+        }
+        wasm.probe_cap = Math.max(num_bytes, wasm.probe_cap * 2, 1 << 17);
+        wasm.probe_ptr = wasm.exports.wasm_alloc(wasm.probe_cap);
+        return;
+    }
     if (num_bytes <= wasm.in_cap) {
         return;
     }
@@ -78,6 +115,16 @@ function reserve_input(num_bytes) {
     }
     wasm.in_cap = Math.max(num_bytes, wasm.in_cap * 2, 1 << 20);
     wasm.in_ptr = wasm.exports.wasm_alloc(wasm.in_cap);
+}
+
+
+function buffer_ptr(use_probe_buffer) {
+    return use_probe_buffer ? wasm.probe_ptr : wasm.in_ptr;
+}
+
+
+function buffer_cap(use_probe_buffer) {
+    return use_probe_buffer ? wasm.probe_cap : wasm.in_cap;
 }
 
 
@@ -93,41 +140,53 @@ function reserve_output(num_entries) {
 }
 
 
-function encode_text(text) {
-    // Returns the number of UTF-8 bytes written into the input buffer. Grows the buffer if the text is not pure ASCII.
-    reserve_input(text.length + 1);
+function encode_text(text, use_probe_buffer) {
+    // Returns the number of UTF-8 bytes written into the chosen buffer. Grows the buffer if the text is not pure ASCII.
+    if (!use_probe_buffer) {
+        cached_encoding = null; // Whatever the input buffer held is about to be overwritten.
+    }
+    reserve_input(text.length + 1, use_probe_buffer);
     while (true) {
         // Views must be re-created after every allocation: growing wasm memory detaches the old ArrayBuffer.
-        let input_view = new Uint8Array(wasm.exports.memory.buffer, wasm.in_ptr, wasm.in_cap);
+        let input_view = new Uint8Array(wasm.exports.memory.buffer, buffer_ptr(use_probe_buffer), buffer_cap(use_probe_buffer));
         let encode_result = text_encoder.encodeInto(text, input_view);
         if (encode_result.read >= text.length) {
             return encode_result.written;
         }
         // Not everything fitted: UTF-8 needs at most 3 bytes per UTF-16 code unit.
-        reserve_input(encode_result.written + (text.length - encode_result.read) * 3 + 1);
+        reserve_input(encode_result.written + (text.length - encode_result.read) * 3 + 1, use_probe_buffer);
     }
 }
 
 
-function scan_text(text, delim_code) {
+function scan_text(text, delim_code, cache_document=null, use_probe_buffer=false) {
     // Returns [bytes_view, num_bytes, offsets_view, num_offsets]. The views are only valid until the next scan.
     if (!ensure_loaded()) {
         throw load_error;
     }
-    let num_bytes = encode_text(text);
+    let num_bytes;
+    if (encoding_cache_hit(cache_document, text)) {
+        num_bytes = cached_encoding.num_bytes; // The input buffer still holds this exact text.
+        stats.encode_reuses += 1;
+    } else {
+        num_bytes = encode_text(text, use_probe_buffer);
+        if (!use_probe_buffer) {
+            remember_encoding(cache_document, text, num_bytes);
+        }
+    }
     reserve_output(Math.floor(num_bytes / 4) + OUT_SLACK + 1);
     let start_time = (typeof performance !== 'undefined') ? performance.now() : 0;
-    let num_offsets = wasm.exports.scan_parity(wasm.in_ptr, num_bytes, delim_code, wasm.out_ptr, wasm.out_cap);
+    let num_offsets = wasm.exports.scan_parity(buffer_ptr(use_probe_buffer), num_bytes, delim_code, wasm.out_ptr, wasm.out_cap);
     if (num_offsets + OUT_SLACK > wasm.out_cap) {
         // Very short fields: the guess was too small and the scanner only counted. Retry with the exact size.
         reserve_output(num_offsets + OUT_SLACK + 1);
-        num_offsets = wasm.exports.scan_parity(wasm.in_ptr, num_bytes, delim_code, wasm.out_ptr, wasm.out_cap);
+        num_offsets = wasm.exports.scan_parity(buffer_ptr(use_probe_buffer), num_bytes, delim_code, wasm.out_ptr, wasm.out_cap);
     }
     if (typeof performance !== 'undefined') {
         stats.scan_ms += performance.now() - start_time;
     }
     stats.scanned_bytes += num_bytes;
-    let bytes_view = new Uint8Array(wasm.exports.memory.buffer, wasm.in_ptr, num_bytes);
+    let bytes_view = new Uint8Array(wasm.exports.memory.buffer, buffer_ptr(use_probe_buffer), num_bytes);
     let offsets_view = new Uint32Array(wasm.exports.memory.buffer, wasm.out_ptr, num_offsets);
     return [bytes_view, num_bytes, offsets_view, num_offsets];
 }
@@ -228,7 +287,7 @@ function parse_document_records(document, delim, policy, comment_prefix=null, st
         let probe_end = text.lastIndexOf('\n', probe_chars - 1) + 1;
         if (probe_end > 0) {
             let probe_text = text.substring(0, probe_end);
-            let [probe_bytes, _probe_num_bytes, probe_offsets, probe_num_offsets] = scan_text(probe_text, delim_code);
+            let [probe_bytes, _probe_num_bytes, probe_offsets, probe_num_offsets] = scan_text(probe_text, delim_code, /*cache_document=*/null, /*use_probe_buffer=*/true);
             stats.probe_scans += 1;
             if (wasm.exports.last_lone_cr_count() > 0) {
                 // The lone CR is inside the prefix, so it is in the whole document too: no point scanning the rest.
@@ -243,7 +302,7 @@ function parse_document_records(document, delim, policy, comment_prefix=null, st
         }
     }
 
-    let [bytes, _num_bytes, offsets, num_offsets] = scan_text(text, delim_code);
+    let [bytes, _num_bytes, offsets, num_offsets] = scan_text(text, delim_code, /*cache_document=*/document);
     if (wasm.exports.last_lone_cr_count() > 0) {
         // A CR without LF is a line break for VSCode but not for the scanner (CRLF is handled: the record ends before the CR).
         stats.fallbacks += 1;
