@@ -11,12 +11,12 @@ const fast_load_utils = require('./fast_load_utils.js');
 
 // TODO advertise copy to excel as one of the main feature if no bugs reported.
 
-const csv_utils = require('./rbql_core/rbql-js/csv_utils.js');
+const csv_utils = require('../rbql_core/rbql-js/csv_utils.js');
 
 var rbql_csv = null; // Using lazy load to improve startup performance.
 function ll_rbql_csv() {
     if (rbql_csv === null)
-        rbql_csv = require('./rbql_core/rbql-js/rbql_csv.js');
+        rbql_csv = require('../rbql_core/rbql-js/rbql_csv.js');
     return rbql_csv;
 }
 
@@ -228,14 +228,14 @@ function map_dialect_to_language_id(separator, policy) {
 
 // This structure will get properly initialized during the startup.
 let absolute_path_map = {
-    'rbql_client.js': null,
+    'webview/rbql_client.js': null,
     'contrib/textarea-caret-position/index.js': null,
-    'rbql_suggest.js': null,
-    'rbql_logo.svg': null,
-    'rbql_client.html': null,
-    'dialect_select.html': null,
-    'dialect_select.js': null,
-    'rbql mock/rbql_mock.py': null,
+    'webview/rbql_suggest.js': null,
+    'webview/rbql_logo.svg': null,
+    'webview/rbql_client.html': null,
+    'webview/dialect_select.html': null,
+    'webview/dialect_select.js': null,
+    'src/rbql_mock/rbql_mock.py': null,
     'rbql_core/vscode_rbql.py': null
 };
 
@@ -751,10 +751,10 @@ async function choose_dynamic_separator(integration_test_options=null) {
     }
     let selected_separator = get_selected_separator(active_editor, active_doc);
     if (!dialect_selection_html_template) {
-        dialect_selection_html_template = await load_resource_file_universal('dialect_select.html');
+        dialect_selection_html_template = await load_resource_file_universal('webview/dialect_select.html');
     }
     dialect_panel = vscode.window.createWebviewPanel('rainbow-dialect-select', 'Choose CSV Dialect', vscode.ViewColumn.Beside, {enableScripts: true});
-    dialect_panel.webview.html = adjust_webview_paths(dialect_panel, dialect_selection_html_template, ['dialect_select.js']);
+    dialect_panel.webview.html = adjust_webview_paths(dialect_panel, dialect_selection_html_template, ['webview/dialect_select.js']);
     dialect_panel.webview.onDidReceiveMessage(function(message) { handle_dialect_selection_message(active_doc, dialect_panel, message, selected_separator, log_wrapper, integration_test_options); });
 }
 
@@ -791,7 +791,7 @@ async function enable_rainbow_features_if_csv(active_doc, log_wrapper) {
     if (comment_prefix) {
         // It is currently impoossible to set comment_prefix on document level, so we have to set it on language level instead.
         // This could potentially cause minor problems in very rare situations.
-        // Applying 'setLanguageConfiguration' doesn't disable static configuration in language-configuration.json.
+        // Applying 'setLanguageConfiguration' doesn't disable static configuration in syntaxes/language-configuration.json.
         vscode.languages.setLanguageConfiguration(language_id, { comments: { lineComment: comment_prefix } });
     }
     if (language_id == DYNAMIC_CSV) {
@@ -1204,7 +1204,7 @@ async function run_rbql_query(webview, input_path, csv_encoding, backend_languag
 
     if (rbql_query.startsWith(test_marker)) {
         log_wrapper.log_simple_event('test mode');
-        let args = [absolute_path_map['rbql mock/rbql_mock.py'], rbql_query];
+        let args = [absolute_path_map['src/rbql_mock/rbql_mock.py'], rbql_query];
         let execution_result = await run_python3_and_parse_output(python_cmd, args);
         console.log(JSON.stringify(execution_result));
         if (execution_result.hasOwnProperty('error_type') || execution_result.hasOwnProperty('error_msg')) {
@@ -1891,9 +1891,9 @@ async function edit_rbql(integration_test_options=null) {
 
     rbql_preview_panel = vscode.window.createWebviewPanel('rbql-console', 'RBQL Console', vscode.ViewColumn.Active, {enableScripts: true});
     if (!client_html_template) {
-        client_html_template = await load_resource_file_universal('rbql_client.html');
+        client_html_template = await load_resource_file_universal('webview/rbql_client.html');
     }
-    rbql_preview_panel.webview.html = adjust_webview_paths(rbql_preview_panel, client_html_template, ['contrib/textarea-caret-position/index.js', 'rbql_suggest.js', 'rbql_client.js', 'rbql_logo.svg']);
+    rbql_preview_panel.webview.html = adjust_webview_paths(rbql_preview_panel, client_html_template, ['contrib/textarea-caret-position/index.js', 'webview/rbql_suggest.js', 'webview/rbql_client.js', 'webview/rbql_logo.svg']);
     rbql_preview_panel.webview.onDidReceiveMessage(function(message) { handle_rbql_client_message(rbql_preview_panel.webview, message, integration_test_options); });
 }
 

@@ -12,3 +12,11 @@ package-lock.json
 wasm/**
 !wasm/csvscan.wasm
 *.vsix
+.vscode-test-web/**
+dist/web/test/**
+**/*.map
+**/__pycache__/**
+DEV_README.md
+rbql_core/README.md
+rbql_core/rbql_logo.png
+rbql_core/rbql-js/.eslintrc.json

@@ -32,7 +32,7 @@
         "onCommand:rainbow-csv.SampleHead",
         "onCommand:rainbow-csv.SampleTail"
     ],
-    "main": "./extension",
+    "main": "./src/extension",
     "browser": "./dist/web/extension.js",
     "contributes": {
         "colors": [
@@ -345,7 +345,7 @@
                 "extensions": [
                     ".csv"
                 ],
-                "configuration": "./language-configuration.json"
+                "configuration": "./syntaxes/language-configuration.json"
             },
             {
                 "id": "tsv",
@@ -357,7 +357,7 @@
                     ".tsv",
                     ".tab"
                 ],
-                "configuration": "./language-configuration.json"
+                "configuration": "./syntaxes/language-configuration.json"
             },
             {
                 "id": "csv (pipe)",
@@ -366,7 +366,7 @@
                     "csv (pipe)"
                 ],
                 "extensions": [],
-                "configuration": "./language-configuration.json"
+                "configuration": "./syntaxes/language-configuration.json"
             },
             {
                 "id": "csv (whitespace)",
@@ -375,7 +375,7 @@
                     "csv (whitespace)"
                 ],
                 "extensions": [],
-                "configuration": "./language-configuration.json"
+                "configuration": "./syntaxes/language-configuration.json"
             },
             {
                 "id": "csv (semicolon)",
@@ -384,7 +384,7 @@
                     "csv (semicolon)"
                 ],
                 "extensions": [],
-                "configuration": "./language-configuration.json"
+                "configuration": "./syntaxes/language-configuration.json"
             },
             {
                 "id": "dynamic csv",
@@ -393,7 +393,7 @@
                     "dynamic csv"
                 ],
                 "extensions": [],
-                "configuration": "./language-configuration.json"
+                "configuration": "./syntaxes/language-configuration.json"
             }
         ],
         "commands": [
@@ -581,11 +581,11 @@
         "build-wasm": "cd wasm && RUSTFLAGS=\"-C target-feature=+simd128\" cargo build --release --target wasm32-unknown-unknown --target-dir target_simd && cp target_simd/wasm32-unknown-unknown/release/csvscan.wasm csvscan.wasm",
         "bench-wasm": "node wasm/bench/ladder.js",
         "package": "vsce package",
-        "lint": "eslint rainbow_utils.js fast_load_utils.js wasm_scanner.js extension.js test/runTest.js && eslint -c eslint.config_browser.mjs rainbow_utils.js rbql_client.js dialect_select.js",
+        "lint": "eslint src/rainbow_utils.js src/fast_load_utils.js src/wasm_scanner.js src/extension.js test/runTest.js && eslint -c eslint.config_browser.mjs src/rainbow_utils.js webview/rbql_client.js webview/dialect_select.js",
         "watch-web": "webpack --watch",
         "package-web": "webpack --mode production --devtool hidden-source-map",
-        "start-web-server": "vscode-test-web --version stable --browser=none --extensionDevelopmentPath=. test",
-        "test-in-browser": "vscode-test-web --version stable --browser=chromium --extensionDevelopmentPath=. --extensionTestsPath=dist/web/test/suite/index.js test",
+        "start-web-server": "vscode-test-web --quality stable --esm --browser=none --extensionDevelopmentPath=. test",
+        "test-in-browser": "vscode-test-web --quality stable --esm --browser=chromium --extensionDevelopmentPath=. --extensionTestsPath=dist/web/test/suite/index.js test",
         "test": "node ./test/runTest.js",
         "unit-test-only": "node ./test/suite/run_unit_tests.js"
     },

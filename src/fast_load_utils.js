@@ -1,7 +1,7 @@
 // This file stores only functionality that is required for idle operation of Rainbow CSV i.e. autodetection only.
 // We want to avoid loading/parsing a lot of JS code in cases where we don't have any CSV files to work with.
 
-const csv_utils = require('./rbql_core/rbql-js/csv_utils.js');
+const csv_utils = require('../rbql_core/rbql-js/csv_utils.js');
 
 // Optional WebAssembly fast path for parse_document_records, see wasm_scanner.js and wasm/README.md.
 let wasm_scanner = null;

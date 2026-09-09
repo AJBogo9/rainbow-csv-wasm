@@ -7,7 +7,7 @@ const webExtensionConfig = {
   mode: 'none', // this leaves the source code as close as possible to the original (when packaging we set this to 'production')
   target: 'webworker', // extensions run in a webworker context
   entry: {
-    extension: './extension.js', // source of the web extension main file
+    extension: './src/extension.js', // source of the web extension main file
     'test/suite/index': './test/suite/index.js' // Source of web extension test runner.
   },
   output: {

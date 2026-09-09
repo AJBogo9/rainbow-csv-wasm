@@ -1,6 +1,6 @@
 const assert = require('assert');
-const rainbow_utils = require('../../rainbow_utils.js');
-const fast_load_utils = require('../../fast_load_utils.js');
+const rainbow_utils = require('../../src/rainbow_utils.js');
+const fast_load_utils = require('../../src/fast_load_utils.js');
 
 
 class VscodePositionTestDouble {
@@ -2725,7 +2725,7 @@ function test_wasm_scanner_parse_document_records() {
     }
     const fs = require('fs');
     const path = require('path');
-    const wasm_scanner = require('../../wasm_scanner.js');
+    const wasm_scanner = require('../../src/wasm_scanner.js');
     assert(wasm_scanner.is_available(), 'wasm scanner must be loadable under node: ' + String(wasm_scanner.get_stats().load_error));
 
     let num_compared = 0;

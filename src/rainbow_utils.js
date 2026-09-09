@@ -2,13 +2,13 @@ const os = require('os');
 const fs = require('fs');
 const path = require('path');
 
-const rbql = require('./rbql_core/rbql-js/rbql.js');
-const rbql_csv = require('./rbql_core/rbql-js/rbql_csv.js');
-const csv_utils = require('./rbql_core/rbql-js/csv_utils.js');
+const rbql = require('../rbql_core/rbql-js/rbql.js');
+const rbql_csv = require('../rbql_core/rbql-js/rbql_csv.js');
+const csv_utils = require('../rbql_core/rbql-js/csv_utils.js');
 
 const fast_load_utils = require('./fast_load_utils.js');
 
-const wcwidth = require('./contrib/wcwidth/index.js');
+const wcwidth = require('../contrib/wcwidth/index.js');
 
 // TODO Allow the number regex to end with dot e.g. 12. or 1245. without the fractional part.
 // Otherwise as soon as someone start typing a fractional part it immediately renders the whole column as non-number for live CSV editing.

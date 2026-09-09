@@ -14,7 +14,7 @@ that license and its history. The `upstream` git remote points at the original r
 | `src/parity.rs` | `scan_parity`: the final scanner. Prefix-XOR quote parity, no fallback, CR LF aware |
 | `bench/ladder.js` | Ground-truth check against the extension's own tokenizer, plus the timing ladder |
 | `csvscan.wasm` | The built scanner, shipped inside the extension package (`npm run build-wasm` refreshes it) |
-| `../wasm_scanner.js` | The JavaScript side: loads the module and implements `parse_document_records` on top of it |
+| `../src/wasm_scanner.js` | The JavaScript side: loads the module and implements `parse_document_records` on top of it |
 
 ## Build
 
@@ -80,7 +80,7 @@ The scan now costs about the same as the unavoidable copy, so further scanner wo
 
 ## How it is wired into the extension
 
-* `wasm_scanner.js` (repository root) loads `wasm/csvscan.wasm` lazily with `fs`, keeps one input and one
+* `src/wasm_scanner.js` loads `wasm/csvscan.wasm` lazily with `fs`, keeps one input and one
   output buffer in wasm memory (grown on demand), and implements `parse_document_records` with the same
   contract as `fast_load_utils.js`: `document.getText()` is copied into wasm memory with
   `TextEncoder.encodeInto`, scanned once, and the offsets are walked in JavaScript. For non-ASCII text the

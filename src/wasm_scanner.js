@@ -11,7 +11,7 @@
 //   bit 30      the record is malformed (set on its last field)
 //   bit 31      the field is the last one of its record
 
-const csv_utils = require('./rbql_core/rbql-js/csv_utils.js');
+const csv_utils = require('../rbql_core/rbql-js/csv_utils.js');
 
 const REC_END = 0x80000000;
 const WARN = 0x40000000;
@@ -30,7 +30,7 @@ function read_wasm_bytes() {
     // In the web extension build webpack replaces `fs` and `path` with empty modules, so this throws and the scanner stays disabled.
     const fs = require('fs');
     const path = require('path');
-    return fs.readFileSync(path.join(__dirname, 'wasm', 'csvscan.wasm'));
+    return fs.readFileSync(path.join(__dirname, '..', 'wasm', 'csvscan.wasm'));
 }
 
 

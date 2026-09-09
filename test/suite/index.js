@@ -3,14 +3,14 @@ const os = require('os');
 
 const vscode = require('vscode');
 
-const rainbow_utils = require('../../rainbow_utils.js');
+const rainbow_utils = require('../../src/rainbow_utils.js');
 const unit_tests = require('./unit_tests.js');
 
 
 // The only reason why we are importing extension as a module here is to run some small unit tests like autodetect_dialect_frequency_based.
 // All other functionality such as commands and highlighting would work without this import/require line, since the extension is activated using VSCode internal mechanisms.
 // So the require/import extension line below can be deleted and all of the main integration tests would still pass.
-const extension = require('../../extension.js');
+const extension = require('../../src/extension.js');
 
 
 const is_web_ext = (os.homedir === undefined); // Runs as web extension in browser.

@@ -6,3 +6,4 @@ wasm/target_simd/
 .vscode-test/
 package-lock.json
 __pycache__/
+.vscode-test-web/
