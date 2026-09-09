@@ -1129,6 +1129,14 @@ async function run() {
         await test_column_tracking(test_folder_uri);
         await test_alternate_row_background(test_folder_uri);
         await test_align_shrink_lint(test_folder_uri);
+        if (!is_web_ext) {
+            // The WebAssembly scanner must have been loaded and used by lint/align/autodetection in the tests above.
+            let wasm_state = await vscode.commands.executeCommand('rainbow-csv.InternalTest', {check_wasm_scanner_state: true});
+            log_message(`wasm scanner state: ${JSON.stringify(wasm_state)}`);
+            assert(wasm_state.enabled);
+            assert(wasm_state.loaded, 'wasm scanner failed to load: ' + wasm_state.load_error);
+            assert(wasm_state.calls > 0);
+        }
         await test_double_width_chars_alignment(test_folder_uri);
         await test_column_edit(test_folder_uri);
 

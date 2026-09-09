@@ -25,7 +25,7 @@ const enc = new TextEncoder();
 const inCap = 96 * 1024 * 1024, inPtr = w.wasm_alloc(inCap);
 const outCap = 32 * 1024 * 1024, outPtr = w.wasm_alloc(outCap * 4);
 const mem = () => new Uint8Array(w.memory.buffer, inPtr, inCap);
-const REC_END = 0x80000000, WARN = 0x40000000, DELIM = 44;
+const REC_END = 0x80000000, WARN = 0x40000000, HAS_QUOTE = 0x20000000, DELIM = 44;
 
 function truth(text) {
   const out = []; let pos = 0;
@@ -35,7 +35,8 @@ function truth(text) {
     for (let k = 0; k < fields.length; k++) {
       p += fields[k].length;
       const last = k + 1 === fields.length;
-      out.push((p | (last ? REC_END : 0) | (last && warn ? WARN : 0)) >>> 0);
+      const has_quote = fields[k].indexOf('"') !== -1 ? HAS_QUOTE : 0;
+      out.push((p | (last ? REC_END : 0) | (last && warn ? WARN : 0) | has_quote) >>> 0);
       p += 1;
     }
     pos += line.length + 1;

@@ -9,3 +9,6 @@ jsconfig.json
 .eslintrc_browser.json
 package-lock.json
 .github/**
+wasm/**
+!wasm/csvscan.wasm
+*.vsix

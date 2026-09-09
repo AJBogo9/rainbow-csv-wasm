@@ -3,6 +3,27 @@
 
 const csv_utils = require('./rbql_core/rbql-js/csv_utils.js');
 
+// Optional WebAssembly fast path for parse_document_records, see wasm_scanner.js and wasm/README.md.
+let wasm_scanner = null;
+let wasm_scanner_enabled = true;
+
+function ll_wasm_scanner() {
+    if (wasm_scanner === null) {
+        wasm_scanner = require('./wasm_scanner.js');
+    }
+    return wasm_scanner;
+}
+
+function set_wasm_scanner_enabled(enabled) {
+    wasm_scanner_enabled = enabled;
+}
+
+function get_wasm_scanner_stats() {
+    let stats = ll_wasm_scanner().get_stats();
+    stats.enabled = wasm_scanner_enabled;
+    return stats;
+}
+
 class AssertionError extends Error {}
 
 function assert(condition, message=null) {
@@ -72,6 +93,12 @@ class RecordTextConsumer {
 
 function parse_document_records(document, delim, policy, comment_prefix=null, stop_on_warning=false, max_records_to_parse=-1, collect_records=true, preserve_quotes_and_whitespaces=false, detect_trailing_spaces=false, min_num_fields_for_autodetection=-1, trim_whitespaces=false) {
     // TODO consider switching to a single row_info array format that would have (comment, record_ranges and the record itself) - this would make it more compatible with the incremental parsing functions.
+    if (wasm_scanner_enabled && policy == 'quoted') {
+        let wasm_result = ll_wasm_scanner().parse_document_records(document, delim, policy, comment_prefix, stop_on_warning, max_records_to_parse, collect_records, preserve_quotes_and_whitespaces, detect_trailing_spaces, min_num_fields_for_autodetection, trim_whitespaces);
+        if (wasm_result !== null) {
+            return wasm_result;
+        }
+    }
     let num_lines = document.lineCount;
     let record_start_line = 0;
     let line_aggregator = new csv_utils.MultilineRecordAggregator(comment_prefix);
@@ -132,4 +159,6 @@ function parse_document_records(document, delim, policy, comment_prefix=null, st
 
 
 module.exports.parse_document_records = parse_document_records;
+module.exports.set_wasm_scanner_enabled = set_wasm_scanner_enabled;
+module.exports.get_wasm_scanner_stats = get_wasm_scanner_stats;
 module.exports.assert = assert;

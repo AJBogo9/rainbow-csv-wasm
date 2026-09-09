@@ -1031,6 +1031,9 @@ async function csv_lint_cmd() {
 
 
 async function run_internal_test_cmd(integration_test_options) {
+    if (integration_test_options && integration_test_options.check_wasm_scanner_state) {
+        return fast_load_utils.get_wasm_scanner_stats();
+    }
     if (integration_test_options && integration_test_options.check_initialization_state) {
         // This mode is to ensure that the most basic operations do not cause rainbow csv to load extra (potentially heavy) code.
         // Vim uses the same approach with its plugin/autoload folder layout design.
@@ -2175,6 +2178,7 @@ async function restart_extension_config(_config_change_event) {
     if (get_from_config('highlight_rows', false)) {
         register_row_background_decorations_provider();
     }
+    fast_load_utils.set_wasm_scanner_enabled(get_from_config('enable_wasm_scanner', true));
     extension_context.virtual_alignment_mode = get_from_config('virtual_alignment_mode', 'disabled');
     extension_context.double_width_alignment = get_from_config('double_width_alignment', true);
     extension_context.virtual_alignment_char = get_from_config('virtual_alignment_char', 'middot');
@@ -2745,6 +2749,7 @@ async function go_to_column(integration_test_options=null) {
 async function activate(context) {
     // TODO consider storing `context` itself in a global variable.
     global_state = context.globalState;
+    fast_load_utils.set_wasm_scanner_enabled(get_from_config('enable_wasm_scanner', true));
 
     if (is_web_ext) {
         web_extension_uri = context.extensionUri;

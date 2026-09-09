@@ -2687,6 +2687,170 @@ function test_generate_column_edit_selections() {
 }
 
 
+class VscodeCrlfDocumentTestDouble extends VscodeDocumentTestDouble {
+    // Same as VscodeDocumentTestDouble but getText() returns CRLF line endings, like a real CRLF document (eol == vscode.EndOfLine.CRLF == 2).
+    constructor(lines_buffer) {
+        super(lines_buffer);
+        this.eol = 2;
+    }
+    getText() {
+        return this.lines_buffer.join('\r\n');
+    }
+}
+
+
+function make_prng(seed) {
+    // mulberry32: small deterministic generator so fuzz failures are reproducible.
+    return function() {
+        seed = (seed + 0x6D2B79F5) | 0;
+        let t = seed;
+        t = Math.imul(t ^ (t >>> 15), t | 1);
+        t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+}
+
+
+function normalize_parse_result(parse_result) {
+    let [records, num_records_parsed, fields_info, first_defective_line, first_trailing_space_line, comments] = parse_result;
+    return [records, num_records_parsed, Array.from(fields_info.entries()), first_defective_line, first_trailing_space_line, comments];
+}
+
+
+function test_wasm_scanner_parse_document_records() {
+    // Ground-truth test: the WebAssembly scanner path of parse_document_records must return exactly what the JS tokenizer path returns.
+    const os = require('os');
+    if (os.homedir === undefined) {
+        return; // Web extension build: the scanner is not loaded there (no fs).
+    }
+    const fs = require('fs');
+    const path = require('path');
+    const wasm_scanner = require('../../wasm_scanner.js');
+    assert(wasm_scanner.is_available(), 'wasm scanner must be loadable under node: ' + String(wasm_scanner.get_stats().load_error));
+
+    let num_compared = 0;
+    function compare_paths(doc, delim, policy, args, context) {
+        fast_load_utils.set_wasm_scanner_enabled(false);
+        let expected = normalize_parse_result(fast_load_utils.parse_document_records(doc, delim, policy, ...args));
+        fast_load_utils.set_wasm_scanner_enabled(true);
+        let direct = wasm_scanner.parse_document_records(doc, delim, policy, ...args);
+        assert(direct !== null, 'wasm scanner refused input: ' + context);
+        assert.deepStrictEqual(normalize_parse_result(direct), expected, 'wasm scanner mismatch (direct call): ' + context);
+        let via_fast_load = normalize_parse_result(fast_load_utils.parse_document_records(doc, delim, policy, ...args));
+        assert.deepStrictEqual(via_fast_load, expected, 'wasm scanner mismatch (via fast_load_utils): ' + context);
+        num_compared += 1;
+    }
+
+    // Argument order: comment_prefix, stop_on_warning, max_records_to_parse, collect_records, preserve_quotes_and_whitespaces, detect_trailing_spaces, min_num_fields_for_autodetection, trim_whitespaces
+    let all_arg_combos = [];
+    for (let comment_prefix of [null, '#']) {
+        for (let stop_on_warning of [true, false]) {
+            for (let max_records_to_parse of [-1, 2]) {
+                for (let collect_records of [true, false]) {
+                    for (let preserve_quotes_and_whitespaces of [true, false]) {
+                        for (let detect_trailing_spaces of [true, false]) {
+                            for (let min_num_fields_for_autodetection of [-1, 2]) {
+                                for (let trim_whitespaces of [true, false]) {
+                                    all_arg_combos.push([comment_prefix, stop_on_warning, max_records_to_parse, collect_records, preserve_quotes_and_whitespaces, detect_trailing_spaces, min_num_fields_for_autodetection, trim_whitespaces]);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // The argument combinations the extension actually uses (lint, autodetection, align/shrink, RBQL preview).
+    let extension_arg_combos = [
+        [null, true, -1, false, true, true, -1, false],
+        [null, true, -1, false, true, true, 3, false],
+        [null, true, -1, true, true, false, -1, false],
+        [null, false, 20, true, false, false, -1, false],
+        ['#', true, -1, false, true, true, -1, false],
+        ['#', true, -1, true, true, false, -1, false],
+    ];
+
+    // 1. Hand-written edge cases, one document per line and one joined document.
+    let pad = 'x'.repeat(70);
+    let edge_lines = [
+        'a,"b,c",d', '"x""y",z', ' "p" ,q', 'a,"unclosed', 'a,b,', '"a","b"', ',,', 'a"b,c', 'x,"a"b,c', '"a" x,b', '"",x', '""",x', 'a""b,c', '"a"""b"', 'a,",b', 'plain,line',
+        'a,"unc,losed', 'next,line,fine', '"multi', 'line",attempt', pad + ',' + pad + ',"q,q"', pad + 'a"b,' + pad, '"' + pad + ',' + pad + '"', pad + ',"' + pad + '""' + pad + '"',
+        pad + ' "z" ,' + pad, pad + ',"' + pad, '"' + 'y'.repeat(130) + '"', '"' + 'y'.repeat(62) + '","' + 'y'.repeat(62) + '"', 'trailing,delim,', ' , , ', '"a"' + ' '.repeat(70) + ',b',
+        '', ' ', '#comment,line', '# "quoted" comment', 'ä,ö', '"ä,ö",ü', ' "ä" ,€', '😀,"😀,😀"', 'a,"😀""x"', 'é"b,c', '"é" x,b', 'ä,"unclosed', 'é́,combining',
+        '\ud800,lone high surrogate', 'lone low,\udc00', '"\ud800",x', 'a, b ,c ', ' "a" , "b" ', '"a b ",c', '" a",b', 'a,"b c "',
+    ];
+    let edge_docs = edge_lines.map((line) => [line]);
+    edge_docs.push(edge_lines);
+    edge_docs.push(edge_lines.concat(['']));
+    edge_docs.push(['']);
+    edge_docs.push(['', '']);
+    edge_docs.push(['a,b', '', 'c,d', '']);
+    edge_docs.push(['a,b', '#c', '', '#d']);
+
+    // 2. Random documents over an alphabet that stresses every state transition, including non-ASCII.
+    let alphabet = ['a', 'b', ' ', ',', ',', '"', '"', '\t', ';', '|', '#', 'ä', '€', '😀'];
+    let prng = make_prng(12345);
+    let fuzz_docs = [];
+    for (let d = 0; d < 120; d++) {
+        let num_lines = 1 + Math.floor(prng() * 5);
+        let lines = [];
+        for (let l = 0; l < num_lines; l++) {
+            let line_len = Math.floor(prng() * 14);
+            let line = '';
+            for (let c = 0; c < line_len; c++) {
+                line += alphabet[Math.floor(prng() * alphabet.length)];
+            }
+            lines.push(line);
+        }
+        fuzz_docs.push(lines);
+    }
+
+    let small_docs = edge_docs.concat(fuzz_docs);
+    for (let doc_lines of small_docs) {
+        for (let delim of [',', ';', '\t', '|']) {
+            for (let doc of [new VscodeDocumentTestDouble(doc_lines), new VscodeCrlfDocumentTestDouble(doc_lines)]) {
+                for (let args of all_arg_combos) {
+                    compare_paths(doc, delim, 'quoted', args, JSON.stringify({doc_lines: doc_lines, delim: delim, eol: doc.eol, args: args}));
+                }
+            }
+        }
+    }
+
+    // 3. The real sample files shipped with the extension (some of them are non-ASCII).
+    let csv_dir = path.join(__dirname, '..', 'csv_files');
+    for (let file_name of fs.readdirSync(csv_dir)) {
+        let file_path = path.join(csv_dir, file_name);
+        if (!fs.statSync(file_path).isFile() || fs.statSync(file_path).size > 2000000) {
+            continue;
+        }
+        let doc_lines = fs.readFileSync(file_path, 'utf8').split(/\r\n|\r|\n/);
+        for (let delim of [',', ';', '\t', '|']) {
+            for (let doc of [new VscodeDocumentTestDouble(doc_lines), new VscodeCrlfDocumentTestDouble(doc_lines)]) {
+                for (let args of extension_arg_combos) {
+                    compare_paths(doc, delim, 'quoted', args, JSON.stringify({file: file_name, delim: delim, eol: doc.eol, args: args}));
+                }
+            }
+        }
+    }
+
+    // 4. Inputs the scanner must refuse (return null) so that the JS path handles them.
+    let refused_doc = new VscodeDocumentTestDouble(['a,b', 'c,d']);
+    assert.equal(null, wasm_scanner.parse_document_records(refused_doc, ',', 'simple', null, true, -1, true, true, false, -1, false));
+    assert.equal(null, wasm_scanner.parse_document_records(refused_doc, ',', 'quoted_rfc', null, true, -1, true, true, false, -1, false));
+    assert.equal(null, wasm_scanner.parse_document_records(refused_doc, ', ', 'quoted', null, true, -1, true, true, false, -1, false));
+    assert.equal(null, wasm_scanner.parse_document_records(refused_doc, ' ', 'quoted', null, true, -1, true, true, false, -1, false));
+    assert.equal(null, wasm_scanner.parse_document_records(refused_doc, '"', 'quoted', null, true, -1, true, true, false, -1, false));
+    assert.equal(null, wasm_scanner.parse_document_records(refused_doc, '§', 'quoted', null, true, -1, true, true, false, -1, false));
+    // A lone CR (not part of CRLF) is a line break for VSCode but not for the scanner.
+    let lone_cr_doc = new VscodeDocumentTestDouble(['a,b', 'c,d']);
+    lone_cr_doc.getText = () => 'a,b\rc,d';
+    assert.equal(null, wasm_scanner.parse_document_records(lone_cr_doc, ',', 'quoted', null, true, -1, true, true, false, -1, false));
+
+    assert(num_compared > 10000, 'too few comparisons: ' + num_compared);
+    assert(wasm_scanner.get_stats().calls >= num_compared * 2);
+}
+
+
 function test_all() {
     test_offsets_calculation();
     test_adjusted_length();
@@ -2704,6 +2868,7 @@ function test_all() {
     test_calc_max_column_widths();
     test_generate_markdown_lines();
     test_parse_document_records();
+    test_wasm_scanner_parse_document_records();
     test_parse_document_range_rfc();
     test_parse_document_range_single_line();
     test_is_opening_rfc_line();

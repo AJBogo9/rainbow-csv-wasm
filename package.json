@@ -1,6 +1,6 @@
 {
     "name": "rainbow-csv",
-    "displayName": "Rainbow CSV",
+    "displayName": "Rainbow CSV (WASM scanner)",
     "description": "Highlight CSV and TSV files, Run SQL-like queries",
     "version": "3.24.1",
     "publisher": "mechatroner",
@@ -203,6 +203,12 @@
                     "default": false,
                     "order": 20,
                     "description": "Enable \"Preview CSV tail\" option in File Explorer context menu for all files."
+                },
+                "rainbow_csv.enable_wasm_scanner": {
+                    "type": "boolean",
+                    "default": true,
+                    "order": 20,
+                    "description": "Use the Rust/WebAssembly SIMD scanner for whole-document parsing (autodetection, lint, align, shrink) of comma/semicolon/tab/pipe-quoted files. Disable to use the original JavaScript tokenizer."
                 },
                 "rainbow_csv.enable_debug_logging": {
                     "type": "boolean",
@@ -572,7 +578,10 @@
     "scripts": {
         "vscode:prepublish": "npm run package-web",
         "compile-web": "webpack",
-        "lint": "eslint rainbow_utils.js fast_load_utils.js extension.js test/runTest.js && eslint -c .eslintrc_browser.json rainbow_utils.js rbql_client.js dialect_select.js",
+        "build-wasm": "cd wasm && RUSTFLAGS=\"-C target-feature=+simd128\" cargo build --release --target wasm32-unknown-unknown --target-dir target_simd && cp target_simd/wasm32-unknown-unknown/release/csvscan.wasm csvscan.wasm",
+        "bench-wasm": "node wasm/bench/ladder.js",
+        "package": "vsce package",
+        "lint": "eslint rainbow_utils.js fast_load_utils.js wasm_scanner.js extension.js test/runTest.js && eslint -c .eslintrc_browser.json rainbow_utils.js rbql_client.js dialect_select.js",
         "watch-web": "webpack --watch",
         "package-web": "webpack --mode production --devtool hidden-source-map",
         "start-web-server": "vscode-test-web --version stable --browser=none --extensionDevelopmentPath=. test",
@@ -584,6 +593,7 @@
         "@types/vscode": "^1.95.0",
         "@vscode/test-web": "^0.0.64",
         "@vscode/test-electron": "^2.4.1",
+        "@vscode/vsce": "^3.9.2",
         "webpack": "^5.96.1",
         "webpack-cli": "^5.1.4",
         "assert": "^2.1.0",

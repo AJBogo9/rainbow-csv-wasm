@@ -3,3 +3,5 @@ dist/
 wasm/target/
 wasm/target_simd/
 *.vsix
+.vscode-test/
+package-lock.json

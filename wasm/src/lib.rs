@@ -17,6 +17,7 @@ pub extern "C" fn wasm_free(ptr: *mut u8, len: usize) {
 
 pub(crate) const REC_END: u32 = 1 << 31;
 pub(crate) const WARN: u32 = 1 << 30;
+pub(crate) const HAS_QUOTE: u32 = 1 << 29; // scan_parity only
 
 mod bitmask;
 mod parity;

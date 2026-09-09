@@ -1,45 +1,62 @@
 //! Parity (prefix-XOR) scanner: branch-light, no scalar fallback.
 //!
 //! Semantics = Rainbow CSV's `quoted` policy (one record per line, quotes never span lines):
-//!   * a newline is always a record boundary;
+//!   * a newline is always a record boundary; a CR right before the LF is not part of the record
+//!     (CRLF documents), and the number of CRs that are NOT followed by LF is reported by
+//!     `last_lone_cr_count()` so the caller can fall back for documents with lone-CR line breaks;
 //!   * a delimiter is a field boundary unless an odd number of quotes precede it on the line;
 //!   * a record is WARNed iff some field containing a quote is not
 //!     `spaces* " ( [^"] | "" )* " spaces*` (exactly the current regex rule).
 //! On WARNed records field boundaries are best-effort (the extension ignores them anyway).
-//! Output format identical to `scan`: u32 end offset per field, bit31 record end, bit30 warning.
+//! Output format: u32 end offset per field (bits 0..28), bit31 record end, bit30 warning,
+//! bit29 the field contains at least one quote character (so consumers can unquote without rescanning).
 
-use crate::REC_END;
+use crate::{HAS_QUOTE, REC_END};
+use core::sync::atomic::{AtomicU32, Ordering};
+
+/// Number of CR bytes not immediately followed by LF in the last `scan_parity` input.
+static LONE_CR: AtomicU32 = AtomicU32::new(0);
+
+#[no_mangle]
+pub extern "C" fn last_lone_cr_count() -> u32 {
+    LONE_CR.load(Ordering::Relaxed)
+}
 
 #[inline(always)]
-fn masks(block: &[u8], delim: u8) -> (u64, u64, u64) {
+fn masks(block: &[u8], delim: u8) -> (u64, u64, u64, u64) {
     #[cfg(target_feature = "simd128")]
     {
         use core::arch::wasm32::*;
         let q = i8x16_splat(b'"' as i8);
         let d = i8x16_splat(delim as i8);
         let nl = i8x16_splat(b'\n' as i8);
+        let cr = i8x16_splat(b'\r' as i8);
         let mut qm = 0u64;
         let mut dm = 0u64;
         let mut nm = 0u64;
+        let mut cm = 0u64;
         for k in 0..4 {
             let v = unsafe { v128_load(block.as_ptr().add(k * 16) as *const v128) };
             qm |= (i8x16_bitmask(i8x16_eq(v, q)) as u64) << (k * 16);
             dm |= (i8x16_bitmask(i8x16_eq(v, d)) as u64) << (k * 16);
             nm |= (i8x16_bitmask(i8x16_eq(v, nl)) as u64) << (k * 16);
+            cm |= (i8x16_bitmask(i8x16_eq(v, cr)) as u64) << (k * 16);
         }
-        (qm, dm, nm)
+        (qm, dm, nm, cm)
     }
     #[cfg(not(target_feature = "simd128"))]
     {
         let mut qm = 0u64;
         let mut dm = 0u64;
         let mut nm = 0u64;
+        let mut cm = 0u64;
         for (k, &b) in block.iter().enumerate().take(64) {
             qm |= ((b == b'"') as u64) << k;
             dm |= ((b == delim) as u64) << k;
             nm |= ((b == b'\n') as u64) << k;
+            cm |= ((b == b'\r') as u64) << k;
         }
-        (qm, dm, nm)
+        (qm, dm, nm, cm)
     }
 }
 
@@ -98,6 +115,8 @@ pub extern "C" fn scan_parity(
     let mut warn = 0u32; // pending warning for the current record
     let mut carry = false; // inside quotes at block start (relative to current line)
     let mut fq_carry = false; // current field (started in an earlier block) contains a quote
+    let mut lone_cr = 0u32;
+    let mut prev_cr_top = false; // previous block ended with a CR (its LF, if any, is in this block)
 
     // Tail handling: copy the last partial block into a zero-padded buffer so one loop serves all.
     let mut tail = [0u8; 64];
@@ -118,8 +137,15 @@ pub extern "C" fn scan_parity(
         } else {
             (1u64 << rem) - 1
         };
-        let (qm, dm, nm) = masks(block, delim);
-        let (qm, dm, nm) = (qm & valid, dm & valid, nm & valid);
+        let (qm, dm, nm, cm) = masks(block, delim);
+        let (qm, dm, nm, cm) = (qm & valid, dm & valid, nm & valid, cm & valid);
+        lone_cr += (cm & !(nm >> 1)).count_ones();
+        if prev_cr_top && (nm & 1) != 0 {
+            lone_cr -= 1;
+        }
+        // bit t set iff byte t-1 is a CR (bit 0 comes from the previous block)
+        let cr_before = (cm << 1) | (prev_cr_top as u64);
+        prev_cr_top = (cm >> 63) != 0;
 
         let boundaries;
         if qm == 0 && !carry && !fq_carry {
@@ -190,7 +216,9 @@ pub extern "C" fn scan_parity(
                 let t = m.trailing_zeros() as usize;
                 m &= m - 1;
                 let is_nl = ((nm >> t) & 1) as u32;
-                let v = ((base + t) as u32) | (is_nl << 31) | ((is_nl & warn) << 30);
+                let p = base + t;
+                let end = p - (is_nl as usize & ((cr_before >> t) & 1) as usize);
+                let v = (end as u32) | (is_nl << 31) | ((is_nl & warn) << 30);
                 if can_write {
                     unsafe { *out.get_unchecked_mut(n) = v };
                 }
@@ -209,6 +237,8 @@ pub extern "C" fn scan_parity(
             m &= m - 1;
             let p = base + t;
             let is_nl = ((nm >> t) & 1) as u32;
+            // record ends before a CR that precedes this LF (CRLF line ending)
+            let end = p - (is_nl as usize & ((cr_before >> t) & 1) as usize);
             // does the field [field_start, p) contain a quote?
             let range = if field_start >= base {
                 let lo = field_start - base;
@@ -217,18 +247,21 @@ pub extern "C" fn scan_parity(
                 (1u64 << t) - 1
             };
             let qf = qm & range;
+            let mut has_quote = 0u32;
             if fq_carry || qf != 0 {
+                has_quote = HAS_QUOTE;
                 // fast accept: exactly opening and closing quote at the field edges, field within this block
                 let fast_ok = !fq_carry
                     && field_start >= base
-                    && p > field_start + 1
-                    && qf == ((1u64 << (field_start - base)) | (1u64 << (t - 1)));
-                if !fast_ok && !quoted_field_ok(&src[field_start..p]) {
+                    && end >= base + 1
+                    && end > field_start + 1
+                    && qf == ((1u64 << (field_start - base)) | (1u64 << (end - 1 - base)));
+                if !fast_ok && !quoted_field_ok(&src[field_start..end]) {
                     warn = 1;
                 }
                 fq_carry = false;
             }
-            let v = (p as u32) | (is_nl << 31) | ((is_nl & warn) << 30);
+            let v = (end as u32) | (is_nl << 31) | ((is_nl & warn) << 30) | has_quote;
             if can_write {
                 unsafe { *out.get_unchecked_mut(n) = v };
             }
@@ -253,12 +286,17 @@ pub extern "C" fn scan_parity(
         i = base + 64;
     }
     let _ = i;
-    // trailing field without final newline
+    LONE_CR.store(lone_cr, Ordering::Relaxed);
+    // trailing field without final newline (a trailing CR would be a lone CR: caller falls back)
     if field_start < len || (len > 0 && src[len - 1] == delim) {
-        if fq_carry && !quoted_field_ok(&src[field_start..len]) {
-            warn = 1;
+        let mut has_quote = 0u32;
+        if fq_carry {
+            has_quote = HAS_QUOTE;
+            if !quoted_field_ok(&src[field_start..len]) {
+                warn = 1;
+            }
         }
-        let v = (len as u32) | REC_END | (warn << 30);
+        let v = (len as u32) | REC_END | (warn << 30) | has_quote;
         if n < out_cap {
             out[n] = v;
         }
