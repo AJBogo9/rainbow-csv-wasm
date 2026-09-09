@@ -213,11 +213,17 @@ function update_column_stats_from_record(record_fields, is_first_record, all_col
 
 
 function get_trimmed_rfc_record_fields_from_record(record) {
-    let record_fields = [];
+    let record_fields = new Array(record.length);
     for (let fnum = 0; fnum < record.length; fnum++) {
-        let field_segments = record[fnum].split('\n');
-        field_segments = field_segments.map(v => v.trim());
-        record_fields.push(field_segments);
+        let field = record[fnum];
+        if (field.indexOf('\n') === -1) {
+            // Only the `quoted_rfc` policy can produce a field spanning several lines. Splitting every other field
+            // allocates an array and a copy per field for nothing, and align does this once for the column stats and
+            // once more when it writes the output.
+            record_fields[fnum] = [field.trim()];
+            continue;
+        }
+        record_fields[fnum] = field.split('\n').map(v => v.trim());
     }
     return record_fields;
 }
@@ -294,9 +300,32 @@ function evaluate_rfc_align_field(field, is_first_record, column_stat, column_of
 }
 
 
+const MAX_CACHED_PADDING = 512;
+let padding_cache = null;
+
+
+function get_padding(num_spaces) {
+    // Alignment asks for two padding strings per field, so on a big document ' '.repeat() would allocate millions of
+    // short-lived strings. The cached ones are immutable and shared.
+    if (num_spaces <= 0) {
+        return '';
+    }
+    if (num_spaces >= MAX_CACHED_PADDING) {
+        return ' '.repeat(num_spaces);
+    }
+    if (padding_cache === null) {
+        padding_cache = new Array(MAX_CACHED_PADDING);
+        for (let i = 0; i < MAX_CACHED_PADDING; i++) {
+            padding_cache[i] = ' '.repeat(i);
+        }
+    }
+    return padding_cache[num_spaces];
+}
+
+
 function rfc_align_field(field, is_first_record, column_stat, column_offset, is_field_segment, is_first_in_line, is_last_in_line) {
     let [num_before, num_after] = evaluate_rfc_align_field(field, is_first_record, column_stat, column_offset,  is_field_segment, is_first_in_line, is_last_in_line);
-    return ' '.repeat(num_before) + field + ' '.repeat(num_after);
+    return get_padding(num_before) + field + get_padding(num_after);
 }
 
 
