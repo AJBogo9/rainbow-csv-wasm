@@ -581,7 +581,7 @@
         "build-wasm": "cd wasm && RUSTFLAGS=\"-C target-feature=+simd128\" cargo build --release --target wasm32-unknown-unknown --target-dir target_simd && cp target_simd/wasm32-unknown-unknown/release/csvscan.wasm csvscan.wasm",
         "bench-wasm": "node wasm/bench/ladder.js",
         "package": "vsce package",
-        "lint": "eslint rainbow_utils.js fast_load_utils.js wasm_scanner.js extension.js test/runTest.js && eslint -c .eslintrc_browser.json rainbow_utils.js rbql_client.js dialect_select.js",
+        "lint": "eslint rainbow_utils.js fast_load_utils.js wasm_scanner.js extension.js test/runTest.js && eslint -c eslint.config_browser.mjs rainbow_utils.js rbql_client.js dialect_select.js",
         "watch-web": "webpack --watch",
         "package-web": "webpack --mode production --devtool hidden-source-map",
         "start-web-server": "vscode-test-web --version stable --browser=none --extensionDevelopmentPath=. test",

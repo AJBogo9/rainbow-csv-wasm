@@ -2697,7 +2697,7 @@ async function go_to_column(integration_test_options=null) {
 
     if (!column_number_str) {
         return;
-    } 
+    }
 
     const target_column = parseInt(column_number_str) - 1; // Convert to 0-based index
     const current_position = editor.selection.active;

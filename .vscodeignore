@@ -5,8 +5,8 @@ node_modules/**
 node_modules
 .gitignore
 jsconfig.json
-.eslintrc.json
-.eslintrc_browser.json
+eslint.config.mjs
+eslint.config_browser.mjs
 package-lock.json
 .github/**
 wasm/**
