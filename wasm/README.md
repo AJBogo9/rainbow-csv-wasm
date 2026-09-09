@@ -107,41 +107,66 @@ CR LF line endings, four delimiters, and all 256 combinations of the parse optio
 inputs the scanner must refuse. Run it with `npm run unit-test-only`; the full VSCode integration suite is
 `npm test` (unset `ELECTRON_RUN_AS_NODE` if you run it from a VSCode terminal).
 
-### End to end (30 MB, 920k lines, through `parse_document_records`, Node 24)
+### End to end (30.9 MB, 920k lines, 4 columns, through `parse_document_records`, Node 24)
+
+Argument sets taken from the real call sites. Every row was checked to return an identical result on both paths.
 
 | Operation | JavaScript path | WASM path |
 |---|---|---|
-| CSV lint with trailing-space detection, LF | 287 ms | 58 ms |
-| CSV lint, CR LF | 279 ms | 60 ms |
-| autodetection | 265 ms | 45 ms |
-| align / shrink (all field strings materialized) | 429 ms | 178 ms |
+| CSV lint with trailing-space detection | 300 ms | 55 ms |
+| autodetection, whole 6-candidate sweep | 285 ms | 49 ms |
+| align / shrink (all field strings materialized) | 425 ms | 157 ms |
+| RBQL + column stats | 477 ms | 196 ms |
+| re-parse of an unchanged document (lint) | 300 ms | 43 ms |
 
-Of the 58 ms, about 16 ms is the copy into wasm memory, 19 ms the scan, and the rest the JavaScript walk
-over 3.7 million field offsets. Align and shrink are bounded by creating 3.7 million JavaScript strings.
+Where a full lint goes: 32 ms copy and scan (13 ms of it the `encodeInto` copy), 3 ms walking the
+offset array, and the rest per-record bookkeeping. Align adds about 120 ms on top of lint, which is
+the cost of building 920k arrays holding 3.7M strings; that is the return contract, not overhead.
 
-## Building and installing the extension
+### Early exit: the prefix probe
 
-```
-npm install --ignore-scripts        # scripts skipped: @vscode/test-web tries to download Chromium
-npm run build-wasm                  # Rust -> wasm/csvscan.wasm (needs rustup target wasm32-unknown-unknown)
-npm run unit-test-only              # ground-truth tests, a few seconds
-npm run package                     # -> rainbow-csv-3.24.1.vsix (runs the webpack web build first)
-code --install-extension rainbow-csv-3.24.1.vsix --force
-```
+The scanner produces offsets for the whole document, but three of the caller's arguments make the JS
+path return after a handful of lines: `stop_on_warning`, `min_num_fields_for_autodetection` and
+`max_records_to_parse`. Scanning everything first made those calls cost a flat ~31 ms instead of
+microseconds, which hurt the RBQL console preview (it asks for the first 100 records) and every
+autodetection candidate rejected on its first record.
 
-The package keeps the upstream identifier `mechatroner.rainbow-csv`, so it replaces the Marketplace
-install in place (VSCode pins VSIX installs, so it is not auto-updated back). Reload the window after
-installing. To go back: `code --uninstall-extension mechatroner.rainbow-csv` and reinstall from the
-Marketplace. To try the difference on a big file: `CSV Lint` from the command palette, with
-`rainbow_csv.enable_wasm_scanner` on and off.
+All three conditions depend on a prefix only, so `parse_document_records` scans a line-aligned prefix
+(`probe_chars`, 128 KB) into a buffer of its own and keeps that result when the walk stopped inside
+it. A full parse pays one wasted 128 KB scan, about 1.4 ms on 30 MB.
+
+| Call shape | before | after |
+|---|---|---|
+| RBQL preview, first 100 records | 31.3 ms | 0.18 ms |
+| autodetection candidate rejected on record 1 | 31.4 ms | 0.13 ms |
+| lint aborting on a malformed first line | 31.3 ms | 0.13 ms |
+
+### Reusing the encoded document
+
+`encodeInto` of 30 MB costs about 13 ms of every scan, and the extension parses the same unchanged
+document more than once. The last encoding stays in the input buffer and is reused when the document
+object and its `version` both match. Keying on `(fileName, version)` is not safe: two different
+documents can share both. This is why the probe has a separate buffer, otherwise it would destroy the
+cached encoding before every full scan.
+
+## Measured and rejected
+
+| Idea | Measured effect | Verdict |
+|---|---|---|
+| Fuse all candidate delimiters into one pass | at most ~1 ms of the 49 ms sweep, since rejected candidates already cost 0.13 ms | not worth the Rust work |
+| Memoize the per-record field-count Map lookup | 0.1% to 2.6%, inside the noise | reverted |
+| Emit per-record summaries from the scanner | ceiling is the entire JS walk, ~14 ms of a 46 ms lint, and it moves the edge-space rules into Rust | poor risk to reward |
 
 ## Ideas left
 
-1. Emit per-record summaries (field count, warning, edge-space flags) from the scanner so lint and
-   autodetection never walk the per-field offsets in JavaScript (about 20 ms of the 58 ms above).
-2. `quoted_rfc` (Dynamic CSV with multiline fields).
-3. Keep the wasm input buffer in sync with `onDidChangeTextDocument` deltas so the 16 ms copy becomes a
-   per-edit delta instead of a per-call full copy.
+1. Build the aligned text inside wasm. Align and shrink are the slowest operations left, and about
+   120 ms of the 157 ms is JavaScript building 920k arrays and 3.7M strings that only exist to be
+   padded and concatenated. This is the largest remaining win and the largest piece of work: the
+   padding rules, double-width characters and comment handling all have to move.
+2. `quoted_rfc` (Dynamic CSV with multiline fields). Those files get no speedup at all today, and the
+   two RFC candidates in autodetection always take the JavaScript path.
+3. Sync the input buffer with `onDidChangeTextDocument` deltas, so an edited document costs a delta
+   rather than a 13 ms full re-encode. The version-keyed reuse above only helps unchanged documents.
 
 What a rewrite does not change: highlighting of plain `.csv` files is done by VS Code's TextMate engine
 from `syntaxes/*.tmLanguage.json`, not by extension code, and large-file limits (20 MB / 300k lines)
