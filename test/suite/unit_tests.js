@@ -2833,6 +2833,43 @@ function test_wasm_scanner_parse_document_records() {
         }
     }
 
+    // 3b. Same comparisons with a tiny probe size, so that the early-exit prefix scan in parse_document_records
+    // is the path under test on these documents instead of the single full scan.
+    let restore_probe_chars = wasm_scanner.set_probe_chars_for_tests(64);
+    try {
+        let probe_arg_combos = all_arg_combos.filter(args => args[1] || args[2] !== -1 || args[6] !== -1);
+        assert(probe_arg_combos.length > 0);
+        for (let doc_lines of small_docs) {
+            for (let delim of [',', ';', '\t', '|']) {
+                for (let doc of [new VscodeDocumentTestDouble(doc_lines), new VscodeCrlfDocumentTestDouble(doc_lines)]) {
+                    for (let args of probe_arg_combos) {
+                        compare_paths(doc, delim, 'quoted', args, JSON.stringify({probe: 64, doc_lines: doc_lines, delim: delim, eol: doc.eol, args: args}));
+                    }
+                }
+            }
+        }
+        for (let file_name of fs.readdirSync(csv_dir)) {
+            let file_path = path.join(csv_dir, file_name);
+            if (!fs.statSync(file_path).isFile() || fs.statSync(file_path).size > 2000000) {
+                continue;
+            }
+            let doc_lines = fs.readFileSync(file_path, 'utf8').split(/\r\n|\r|\n/);
+            for (let delim of [',', ';', '\t', '|']) {
+                for (let doc of [new VscodeDocumentTestDouble(doc_lines), new VscodeCrlfDocumentTestDouble(doc_lines)]) {
+                    for (let args of extension_arg_combos) {
+                        compare_paths(doc, delim, 'quoted', args, JSON.stringify({probe: 64, file: file_name, delim: delim, eol: doc.eol, args: args}));
+                    }
+                }
+            }
+        }
+        // The probe must actually have been taken and used, otherwise this block proves nothing.
+        let probe_stats = wasm_scanner.get_stats();
+        assert(probe_stats.probe_scans > 0, 'the prefix scan was never taken');
+        assert(probe_stats.probe_hits > 0, 'the prefix scan never produced the final result');
+    } finally {
+        wasm_scanner.set_probe_chars_for_tests(restore_probe_chars);
+    }
+
     // 4. Inputs the scanner must refuse (return null) so that the JS path handles them.
     let refused_doc = new VscodeDocumentTestDouble(['a,b', 'c,d']);
     assert.equal(null, wasm_scanner.parse_document_records(refused_doc, ',', 'simple', null, true, -1, true, true, false, -1, false));

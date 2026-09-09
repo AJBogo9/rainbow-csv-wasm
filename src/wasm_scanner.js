@@ -22,7 +22,8 @@ const OUT_SLACK = 64; // The scanner checks the output capacity once per 64-byte
 
 let wasm = null; // {exports, in_ptr, in_cap, out_ptr, out_cap}
 let load_error = null;
-let stats = {loaded: false, load_error: null, calls: 0, fallbacks: 0, scanned_bytes: 0, scan_ms: 0};
+let stats = {loaded: false, load_error: null, calls: 0, fallbacks: 0, scanned_bytes: 0, scan_ms: 0, probe_scans: 0, probe_hits: 0};
+let probe_chars = 128 * 1024; // Prefix scanned first when the caller can stop early, see parse_document_records().
 let text_encoder = (typeof TextEncoder !== 'undefined') ? new TextEncoder() : null;
 
 
@@ -214,13 +215,49 @@ function parse_document_records(document, delim, policy, comment_prefix=null, st
     }
     // Note: no CRLF normalization here, the scanner handles CR LF itself (a copy of a 30 MB string costs more than the scan).
     stats.calls += 1;
+    let opts = {delim: delim, policy: policy, comment_prefix: comment_prefix, stop_on_warning: stop_on_warning,
+                max_records_to_parse: max_records_to_parse, collect_records: collect_records,
+                preserve_quotes_and_whitespaces: preserve_quotes_and_whitespaces, detect_trailing_spaces: detect_trailing_spaces,
+                min_num_fields_for_autodetection: min_num_fields_for_autodetection, trim_whitespaces: trim_whitespaces};
 
-    let [bytes, num_bytes, offsets, num_offsets] = scan_text(text, delim_code);
+    // The JS path returns after a handful of lines when it hits a stop condition, so scanning the whole document up front
+    // would be pure waste. Scan a line-aligned prefix first and keep its result only if the walk actually stopped inside it:
+    // all three stop conditions (a warning, the autodetection column threshold, the record limit) depend on a prefix only.
+    let can_stop_early = stop_on_warning || min_num_fields_for_autodetection !== -1 || max_records_to_parse !== -1;
+    if (can_stop_early && text.length > probe_chars) {
+        let probe_end = text.lastIndexOf('\n', probe_chars - 1) + 1;
+        if (probe_end > 0) {
+            let probe_text = text.substring(0, probe_end);
+            let [probe_bytes, _probe_num_bytes, probe_offsets, probe_num_offsets] = scan_text(probe_text, delim_code);
+            stats.probe_scans += 1;
+            if (wasm.exports.last_lone_cr_count() > 0) {
+                // The lone CR is inside the prefix, so it is in the whole document too: no point scanning the rest.
+                stats.fallbacks += 1;
+                return null;
+            }
+            let [probe_result, probe_early_stop] = walk_scanned(probe_text, probe_bytes, probe_offsets, probe_num_offsets, /*is_full_text=*/false, opts);
+            if (probe_early_stop) {
+                stats.probe_hits += 1;
+                return probe_result;
+            }
+        }
+    }
+
+    let [bytes, _num_bytes, offsets, num_offsets] = scan_text(text, delim_code);
     if (wasm.exports.last_lone_cr_count() > 0) {
         // A CR without LF is a line break for VSCode but not for the scanner (CRLF is handled: the record ends before the CR).
         stats.fallbacks += 1;
         return null;
     }
+    return walk_scanned(text, bytes, offsets, num_offsets, /*is_full_text=*/true, opts)[0];
+}
+
+
+function walk_scanned(text, bytes, offsets, num_offsets, is_full_text, opts) {
+    // Walks the scanner output into the parse_document_records return value. Returns [result, early_stop].
+    let {delim, policy, comment_prefix, stop_on_warning, max_records_to_parse, collect_records,
+         preserve_quotes_and_whitespaces, detect_trailing_spaces, min_num_fields_for_autodetection, trim_whitespaces} = opts;
+    let num_bytes = bytes.length;
     let is_ascii = (num_bytes === text.length);
     let to_char = make_byte_to_char_converter(text, is_ascii);
     let comment_prefix_bytes = comment_prefix ? text_encoder.encode(comment_prefix) : null;
@@ -330,15 +367,16 @@ function parse_document_records(document, delim, policy, comment_prefix=null, st
         }
     }
 
-    if (!early_stop && collect_records && (text.length === 0 || text.charCodeAt(text.length - 1) === 10)) {
+    if (!early_stop && is_full_text && collect_records && (text.length === 0 || text.charCodeAt(text.length - 1) === 10)) {
         // The last line is empty: the JS path records it as a comment so that align/shrink keep it.
         comments.push({record_num: num_records_parsed, comment_text: ''});
     }
-    return [records, num_records_parsed, fields_info, first_defective_line, first_trailing_space_line, comments];
+    return [[records, num_records_parsed, fields_info, first_defective_line, first_trailing_space_line, comments], early_stop];
 }
 
 
 module.exports.parse_document_records = parse_document_records;
+module.exports.set_probe_chars_for_tests = function(n) { let old = probe_chars; probe_chars = n; return old; };
 module.exports.is_available = is_available;
 module.exports.get_stats = get_stats;
 module.exports.scan_text = scan_text;
