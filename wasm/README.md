@@ -58,7 +58,7 @@ Implements the `quoted` policy exactly: one record per line, a delimiter is a bo
 number of quotes precede it on the line, and a record is flagged iff a field containing a quote is not
 `spaces* " ( [^"] | "" )* " spaces*`. On flagged records the field boundaries may differ from the
 JavaScript tokenizer (it falls back to splitting on every delimiter; this scanner keeps quote parity), so
-`wasm_scanner.js` re-tokenizes flagged lines with the JavaScript tokenizer.
+`src/wasm_scanner.js` re-tokenizes flagged lines with the JavaScript tokenizer.
 
 Not implemented: the multiline `quoted_rfc` policy (remove the per-line parity reset, count newlines
 inside quotes), the `whitespace` and `simple` policies (trivial: `simple` is the no-quote path), and
@@ -82,7 +82,7 @@ The scan now costs about the same as the unavoidable copy, so further scanner wo
 
 * `src/wasm_scanner.js` loads `wasm/csvscan.wasm` lazily with `fs`, keeps one input and one
   output buffer in wasm memory (grown on demand), and implements `parse_document_records` with the same
-  contract as `fast_load_utils.js`: `document.getText()` is copied into wasm memory with
+  contract as `src/fast_load_utils.js`: `document.getText()` is copied into wasm memory with
   `TextEncoder.encodeInto`, scanned once, and the offsets are walked in JavaScript. For non-ASCII text the
   UTF-8 offsets are converted to UTF-16 offsets with a single monotonic pass over the string. Anything the
   scanner can't handle returns `null`.
@@ -90,7 +90,7 @@ The scan now costs about the same as the unavoidable copy, so further scanner wo
   its original line loop. This is the single entry point of autodetection, CSV lint, align, shrink and the
   RBQL preview, so all of those use the scanner.
 * The setting `rainbow_csv.enable_wasm_scanner` (default on) switches back to the JavaScript tokenizer.
-  `extension.js` reads it on activation and on configuration changes.
+  `src/extension.js` reads it on activation and on configuration changes.
 * `rainbow-csv.InternalTest` with `{check_wasm_scanner_state: true}` returns the scanner statistics
   (`loaded`, `calls`, `fallbacks`, `scanned_bytes`, `scan_ms`); the integration tests assert it was used.
 * Visible-range providers (`rainbow_utils.parse_document_range`: semantic tokens, inlay hints, hover) still

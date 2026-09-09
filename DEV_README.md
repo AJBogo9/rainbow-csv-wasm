@@ -22,6 +22,18 @@
 * Run `npm run lint`
 
 
+### Reading the results of the integration suites
+Neither `npm run test` nor `npm run test-in-browser` reports failure through its exit code: `run()` in
+`test/suite/index.js` catches every exception and only logs it, so both commands exit 0 whatever
+happens. Judge a run by its output instead:
+* `Finishing tests` must be present and `Error: tests have failed` must be absent.
+* The `###RAINBOW_CSV_UNIT_TEST_MESSAGE###` stream should be complete: 38 lines under VSCode desktop,
+  34 in the browser. A short stream that still exits 0 means the suite aborted part way.
+* `test_comment_prefix_python_rbql` is flaky in the desktop suite: it reads
+  `vscode.window.activeTextEditor` right after the RBQL command and gets `undefined` when the result
+  document has not taken focus yet. Re-run before investigating.
+
+
 ### Debugging the extension:
 #### For standard VSCode:
 1. Open rainbow_csv directory in VSCode  
