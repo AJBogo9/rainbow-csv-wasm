@@ -1,5 +1,34 @@
 # Rainbow CSV
 
+## About this fork
+
+This is [Rainbow CSV](https://github.com/mechatroner/vscode_rainbow_csv) by mechatroner with one change: the
+tokenizer that CSV lint, separator autodetection, align/shrink and RBQL run over the whole document is replaced by a
+Rust/WebAssembly SIMD scanner. I made it because on large files those commands took long enough to notice, and the
+per-line regex tokenizer was where the time went.
+
+Measured on a 30.9 MB, 920k-line CSV, with byte-identical results on both paths:
+
+| Operation | Original | This fork |
+|---|---|---|
+| CSV lint | 300 ms | 55 ms |
+| Separator autodetection | 285 ms | 49 ms |
+| Parsing for align / shrink | 425 ms | 157 ms |
+| RBQL query and column stats | 477 ms | 196 ms |
+
+Column alignment itself also got a fast path on the same file: a full align went from about 1.5 s to 0.8 s.
+
+**Switch if** you lint, align or query CSV files in the tens of megabytes. On the small files most people open
+both versions are already instant. Highlighting, hover, sticky header and the browser build (vscode.dev) run the
+unchanged upstream code. Anything the scanner does not cover (multiline quoted fields, the whitespace dialect,
+multi-character separators) falls back to the original tokenizer, and a ground-truth test compares both paths across
+every option combination. Benchmarks, design and the ideas that were measured and rejected are in
+[wasm/README.md](wasm/README.md).
+
+Install: `npm install && npm run package`, then `code --install-extension rainbow-csv-*.vsix`. The fork keeps the
+original extension id, so turn off Auto Update for it in the Extensions view or the next upstream release will replace
+it.
+
 ## Main Features
 * Highlights columns in CSV, TSV, semicolon, and pipe-separated files with distinct colors.
 * Query, transform, and filter data using a built-in SQL-like language (RBQL).
