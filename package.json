@@ -580,6 +580,8 @@
         "compile-web": "webpack",
         "build-wasm": "cd wasm && RUSTFLAGS=\"-C target-feature=+simd128\" cargo build --release --target wasm32-unknown-unknown --target-dir target_simd && cp target_simd/wasm32-unknown-unknown/release/csvscan.wasm csvscan.wasm",
         "bench-wasm": "node wasm/bench/ladder.js",
+        "build-help": "node ./scripts/build_help.js",
+        "check-help": "node ./scripts/build_help.js --check",
         "package": "vsce package",
         "lint": "eslint src/rainbow_utils.js src/fast_load_utils.js src/wasm_scanner.js src/extension.js test/runTest.js && eslint -c eslint.config_browser.mjs src/rainbow_utils.js webview/rbql_client.js webview/dialect_select.js",
         "watch-web": "webpack --watch",
@@ -599,6 +601,7 @@
         "assert": "^2.1.0",
         "process": "^0.11.10",
         "globals": "^15.12.0",
+        "marked": "^18.0.12",
         "eslint": "^9.15.0"
     },
     "repository": {

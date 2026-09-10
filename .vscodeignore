@@ -20,3 +20,5 @@ DEV_README.md
 rbql_core/README.md
 rbql_core/rbql_logo.png
 rbql_core/rbql-js/.eslintrc.json
+webview/rbql_logo.svg
+scripts/**

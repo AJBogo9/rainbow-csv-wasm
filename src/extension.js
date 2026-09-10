@@ -32,6 +32,7 @@ function ll_rainbow_utils() {
 // TODO consider checking `vscode.env.appHost == 'desktop'` instead.
 const is_web_ext = (os.homedir === undefined); // Runs as web extension in browser.
 var web_extension_uri = null;
+var extension_root_uri = null;
 const preview_window_size = 100;
 const scratch_buf_marker = 'vscode_rbql_scratch';
 const dynamic_csv_highlight_margin = 50; // TODO make configurable
@@ -231,7 +232,7 @@ let absolute_path_map = {
     'webview/rbql_client.js': null,
     'contrib/textarea-caret-position/index.js': null,
     'webview/rbql_suggest.js': null,
-    'webview/rbql_logo.svg': null,
+    'webview/rbql_logo.png': null,
     'webview/rbql_client.html': null,
     'webview/dialect_select.html': null,
     'webview/dialect_select.js': null,
@@ -753,7 +754,7 @@ async function choose_dynamic_separator(integration_test_options=null) {
     if (!dialect_selection_html_template) {
         dialect_selection_html_template = await load_resource_file_universal('webview/dialect_select.html');
     }
-    dialect_panel = vscode.window.createWebviewPanel('rainbow-dialect-select', 'Choose CSV Dialect', vscode.ViewColumn.Beside, {enableScripts: true});
+    dialect_panel = vscode.window.createWebviewPanel('rainbow-dialect-select', 'Choose CSV Dialect', vscode.ViewColumn.Beside, {enableScripts: true, localResourceRoots: [extension_root_uri]});
     dialect_panel.webview.html = adjust_webview_paths(dialect_panel, dialect_selection_html_template, ['webview/dialect_select.js']);
     dialect_panel.webview.onDidReceiveMessage(function(message) { handle_dialect_selection_message(active_doc, dialect_panel, message, selected_separator, log_wrapper, integration_test_options); });
 }
@@ -1707,6 +1708,11 @@ async function handle_rbql_client_message(webview, message, integration_test_opt
 
     if (message_type == 'handshake') {
         var backend_language = get_from_global_state('rbql_backend_language', 'js');
+        if (backend_language == 'pyhon') {
+            // The dropdown shipped a misspelled option value until 3.24.1 and the selection is persisted, so old
+            // global state can still hold it. Without this the <select> would silently reset to an empty value.
+            backend_language = 'python';
+        }
         var encoding = get_from_global_state('rbql_encoding', 'utf-8');
         var init_msg = {'msg_type': 'handshake', 'backend_language': backend_language, 'encoding': encoding};
         ll_rainbow_utils().sample_preview_records_from_context(rbql_context, init_msg, preview_window_size, cached_table_parse_result);
@@ -1819,6 +1825,7 @@ async function handle_rbql_client_message(webview, message, integration_test_opt
 
 
 function adjust_webview_paths(preview_panel, client_html, paths_list) {
+    client_html = client_html.split('%CSP_SOURCE%').join(preview_panel.webview.cspSource);
     for (const local_path of paths_list) {
         let adjusted_webview_url = null;
         if (is_web_ext) {
@@ -1889,11 +1896,11 @@ async function edit_rbql(integration_test_options=null) {
         "header_for_ui": header_for_ui
     };
 
-    rbql_preview_panel = vscode.window.createWebviewPanel('rbql-console', 'RBQL Console', vscode.ViewColumn.Active, {enableScripts: true});
+    rbql_preview_panel = vscode.window.createWebviewPanel('rbql-console', 'RBQL Console', vscode.ViewColumn.Active, {enableScripts: true, localResourceRoots: [extension_root_uri]});
     if (!client_html_template) {
         client_html_template = await load_resource_file_universal('webview/rbql_client.html');
     }
-    rbql_preview_panel.webview.html = adjust_webview_paths(rbql_preview_panel, client_html_template, ['contrib/textarea-caret-position/index.js', 'webview/rbql_suggest.js', 'webview/rbql_client.js', 'webview/rbql_logo.svg']);
+    rbql_preview_panel.webview.html = adjust_webview_paths(rbql_preview_panel, client_html_template, ['contrib/textarea-caret-position/index.js', 'webview/rbql_suggest.js', 'webview/rbql_client.js', 'webview/rbql_logo.png']);
     rbql_preview_panel.webview.onDidReceiveMessage(function(message) { handle_rbql_client_message(rbql_preview_panel.webview, message, integration_test_options); });
 }
 
@@ -2751,6 +2758,7 @@ async function activate(context) {
     global_state = context.globalState;
     fast_load_utils.set_wasm_scanner_enabled(get_from_config('enable_wasm_scanner', true));
 
+    extension_root_uri = context.extensionUri;
     if (is_web_ext) {
         web_extension_uri = context.extensionUri;
     }

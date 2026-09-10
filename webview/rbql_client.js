@@ -14,17 +14,52 @@ var adjust_join_table_header_callback = null;
 
 var global_header = null;
 
-var is_web_ext = null;
+// Every entry is static markup in rbql_client.html, so the lookups are done once in main() instead of on each
+// keystroke and each preview redraw. Element ids passed to rbql_suggest stay strings: it resolves them itself.
+const el = {};
+const CACHED_ELEMENT_IDS = [
+    'ack_error',
+    'clear_history_btn',
+    'close_help',
+    'error_message_details',
+    'error_message_header',
+    'go_backward',
+    'go_begin',
+    'go_end',
+    'go_forward',
+    'help_btn',
+    'history_entries',
+    'preview_table',
+    'query_history',
+    'rbql_error_message',
+    'rbql_help',
+    'rbql_input',
+    'rbql_run_btn',
+    'select_backend_language',
+    'select_encoding',
+    'select_output_format',
+    'toggle_history_btn',
+    'udf_button',
+    'with_headers',
+];
+
+
+function cache_elements() {
+    for (const element_id of CACHED_ELEMENT_IDS) {
+        el[element_id] = document.getElementById(element_id);
+    }
+}
+
 
 function report_backend_language_change() {
-    let backend_language = document.getElementById('select_backend_language').value;
+    let backend_language = el.select_backend_language.value;
     vscode.postMessage({'msg_type': 'global_param_change', 'key': 'rbql_backend_language', 'value': backend_language});
     assign_backend_lang_selection_title();
 }
 
 
 function report_encoding_change() {
-    let encoding = document.getElementById('select_encoding').value;
+    let encoding = el.select_encoding.value;
     vscode.postMessage({'msg_type': 'global_param_change', 'key': 'rbql_encoding', 'value': encoding});
 }
 
@@ -119,7 +154,7 @@ function make_preview_table() {
     let actual_start_record = last_preview_message.actual_start_record;
     let preview_error = last_preview_message.preview_sampling_error;
 
-    var table = document.getElementById('preview_table');
+    var table = el.preview_table;
     remove_children(table);
     if (preview_error) {
         let row = document.createElement('tr');
@@ -136,7 +171,7 @@ function make_preview_table() {
         return;
     }
 
-    let with_headers = document.getElementById('with_headers').checked;
+    let with_headers = el.with_headers.checked;
     let max_num_columns = get_max_num_columns(records, with_headers);
     add_header_row(max_num_columns, with_headers, table);
     for (var r = 0; r < records.length; r++) {
@@ -188,13 +223,13 @@ function apply_suggest_callback(query) {
 
 function fetch_join_header_callback(join_table_id, adjust_join_table_headers) {
     adjust_join_table_header_callback = adjust_join_table_headers;
-    let encoding = document.getElementById('select_encoding').value;
+    let encoding = el.select_encoding.value;
     vscode.postMessage({'msg_type': 'fetch_table_header', 'table_id': join_table_id, 'encoding': encoding});
 }
 
 
 function process_with_headers_change() {
-    let with_headers = document.getElementById('with_headers').checked;
+    let with_headers = el.with_headers.checked;
     vscode.postMessage({'msg_type': 'with_headers_change', 'with_headers': with_headers}); // We need to send it to remember preview state
     let header = with_headers ? global_header : null;
     rbql_suggest.initialize_suggest('rbql_input', 'query_suggest', 'history_button', apply_suggest_callback, header, fetch_join_header_callback);
@@ -203,47 +238,46 @@ function process_with_headers_change() {
 
 
 function show_error(error_type, error_msg) {
-    error_msg = error_msg.replace('\r?\n', '\r\n');
-    document.getElementById('error_message_header').textContent = 'Error type: "' + error_type + '"';
-    document.getElementById('error_message_details').textContent = error_msg;
-    document.getElementById('rbql_error_message').style.display = 'block';
-    document.getElementById('ack_error').focus();
+    el.error_message_header.textContent = 'Error type: "' + error_type + '"';
+    el.error_message_details.textContent = error_msg;
+    el.rbql_error_message.style.display = 'block';
+    el.ack_error.focus();
 }
 
 
 function hide_error_msg() {
-    document.getElementById('rbql_error_message').style.display = 'none';
-    document.getElementById("rbql_input").focus();
+    el.rbql_error_message.style.display = 'none';
+    el.rbql_input.focus();
 }
 
 
 function toggle_help_msg() {
     let document_bg_color = global_css_style.getPropertyValue('--vscode-notifications-background');
-    let rbql_help_element = document.getElementById('rbql_help');
+    let rbql_help_element = el.rbql_help;
     var style_before = rbql_help_element.style.display;
     var new_style = style_before == 'block' ? 'none' : 'block';
     if (new_style == 'block')
         rbql_help_element.style.backgroundColor = document_bg_color;
     rbql_help_element.style.display = new_style;
-    document.getElementById('close_help').style.display = new_style;
+    el.close_help.style.display = new_style;
 }
 
 
 function register_history_callback(button_element, query) {
-    button_element.addEventListener("click", () => { document.getElementById('rbql_input').value = query; });
+    button_element.addEventListener("click", () => { el.rbql_input.value = query; });
 }
 
 
 function toggle_history() {
-    let query_history_block = document.getElementById('query_history');
+    let query_history_block = el.query_history;
     var style_before = query_history_block.style.display;
     var new_style = style_before == 'block' ? 'none' : 'block';
     if (new_style == 'block') {
-        document.getElementById('toggle_history_btn').textContent = '\u25BC';
+        el.toggle_history_btn.textContent = '\u25BC';
     } else {
-        document.getElementById('toggle_history_btn').textContent = '\u25B2';
+        el.toggle_history_btn.textContent = '\u25B2';
     }
-    let history_entries_block = document.getElementById('history_entries');
+    let history_entries_block = el.history_entries;
     remove_children(history_entries_block);
     for (let nr = 0; nr < query_history.length; nr++) {
         let entry_button = document.createElement('button');
@@ -254,7 +288,7 @@ function toggle_history() {
     }
     query_history_block.style.display = new_style;
     let calculated_height = query_history_block.offsetHeight;
-    let text_input_coordinates = document.getElementById('rbql_input').getBoundingClientRect();
+    let text_input_coordinates = el.rbql_input.getBoundingClientRect();
     query_history_block.style.left = text_input_coordinates.left + 'px';
     query_history_block.style.top = (text_input_coordinates.top - calculated_height) + 'px';
 }
@@ -268,16 +302,35 @@ function clear_history() {
 
 
 function start_rbql() {
-    var rbql_text = document.getElementById('rbql_input').value;
+    var rbql_text = el.rbql_input.value;
     if (!rbql_text || rbql_running)
         return;
     rbql_running = true;
-    document.getElementById('rbql_run_btn').textContent = "\u231B";
-    let backend_language = document.getElementById('select_backend_language').value;
-    let output_format = document.getElementById('select_output_format').value;
-    let encoding = document.getElementById('select_encoding').value;
-    let with_headers = document.getElementById('with_headers').checked;
+    el.rbql_run_btn.textContent = "\u231B";
+    let backend_language = el.select_backend_language.value;
+    let output_format = el.select_output_format.value;
+    let encoding = el.select_encoding.value;
+    let with_headers = el.with_headers.checked;
     vscode.postMessage({'msg_type': 'run', 'query': rbql_text, 'backend_language': backend_language, 'output_dialect': output_format, 'encoding': encoding, 'with_headers': with_headers});
+}
+
+
+function maybe_run_integration_test(message) {
+    // Both integration suites drive this panel through the `rainbow-csv.RBQL` command rather than through the UI:
+    // extension.js forwards the query in the handshake and the run has to be started from here. Kept in one function
+    // so the handshake above reads as the production path only.
+    let integration_test_query = message['integration_test_query'];
+    let integration_test_language = message['integration_test_language'];
+    if (!integration_test_query || !integration_test_language) {
+        return;
+    }
+    let integration_test_delay = message.hasOwnProperty('integration_test_delay') ? message.integration_test_delay : 2000;
+    el.with_headers.checked = Boolean(message['integration_test_with_headers']);
+    process_with_headers_change();
+    el.select_backend_language.value = integration_test_language;
+    assign_backend_lang_selection_title();
+    el.rbql_input.value = integration_test_query;
+    setTimeout(start_rbql, integration_test_delay);
 }
 
 
@@ -291,40 +344,23 @@ function handle_message(msg_event) {
             return;
         handshake_completed = true;
         if (message.hasOwnProperty('last_query')) {
-            document.getElementById('rbql_input').value = message['last_query'];
+            el.rbql_input.value = message['last_query'];
         }
         if (message.hasOwnProperty('query_history')) {
             query_history = message['query_history'];
         }
         global_header = message['header_for_ui'];
-        is_web_ext = message['is_web_ext'];
         let with_headers = message['with_headers'];
         let header = with_headers ? global_header : null;
         rbql_suggest.initialize_suggest('rbql_input', 'query_suggest', 'history_button', apply_suggest_callback, header, fetch_join_header_callback);
         last_preview_message = message;
-        document.getElementById("select_backend_language").value = message['backend_language'];
+        el.select_backend_language.value = message['backend_language'];
         assign_backend_lang_selection_title();
-        document.getElementById("select_encoding").value = message['encoding'];
-        document.getElementById("with_headers").checked = with_headers;
+        el.select_encoding.value = message['encoding'];
+        el.with_headers.checked = with_headers;
         make_preview_table();
 
-        let integration_test_query = message['integration_test_query'];
-        let integration_test_language = message['integration_test_language'];
-        let integration_test_delay = message.hasOwnProperty('integration_test_delay') ? message.integration_test_delay : 2000;
-        if (integration_test_query && integration_test_language) {
-            if (message['integration_test_with_headers']) {
-                document.getElementById("with_headers").checked = true;
-            } else {
-                document.getElementById("with_headers").checked = false;
-            }
-            process_with_headers_change();
-            document.getElementById("select_backend_language").value = integration_test_language;
-            assign_backend_lang_selection_title();
-            document.getElementById('rbql_input').value = integration_test_query;
-            setTimeout(function() {
-                start_rbql();
-            }, integration_test_delay);
-        }
+        maybe_run_integration_test(message);
     }
 
     if (message_type == 'fetch_table_header_response') {
@@ -345,7 +381,7 @@ function handle_message(msg_event) {
             let error_msg = message.hasOwnProperty('error_msg') ? message['error_msg'] : 'Unknown Error';
             show_error(error_type, error_msg);
         }
-        document.getElementById('rbql_run_btn').textContent = "Run";
+        el.rbql_run_btn.textContent = "Run";
     }
 }
 
@@ -359,7 +395,7 @@ function is_printable_key_code(keycode) {
 function handle_input_keyup(event) {
     rbql_suggest.handle_input_keyup(event);
     if (is_printable_key_code(event.keyCode) || event.keyCode == 8 /* Bakspace */) {
-        let current_query = document.getElementById('rbql_input').value;
+        let current_query = el.rbql_input.value;
         vscode.postMessage({'msg_type': 'update_query', 'query': current_query});
     }
 }
@@ -375,7 +411,7 @@ function handle_input_keydown(event) {
 
 
 function assign_backend_lang_selection_title() {
-    let select_backend_element = document.getElementById('select_backend_language');
+    let select_backend_element = el.select_backend_language;
     let backend_language = select_backend_element.value;
     if (backend_language == 'js') {
         select_backend_element.title = 'Allows to use JS expressions such as: `Math.sqrt(a1)`, `a2.substring(1, 5)`, `a3.toUpperCase()`, etc';
@@ -386,35 +422,36 @@ function assign_backend_lang_selection_title() {
 
 
 function handle_udf_edit() {
-    let backend_language = document.getElementById('select_backend_language').value;
+    let backend_language = el.select_backend_language.value;
     vscode.postMessage({'msg_type': 'edit_udf', 'backend_language': backend_language});
 }
 
 
 function main() {
+    cache_elements();
     global_css_style = getComputedStyle(document.body);
     assign_backend_lang_selection_title();
 
     window.addEventListener('message', handle_message);
     vscode.postMessage({'msg_type': 'handshake'});
 
-    document.getElementById("rbql_run_btn").addEventListener("click", start_rbql);
-    document.getElementById("select_backend_language").addEventListener("change", report_backend_language_change);
-    document.getElementById("select_encoding").addEventListener("change", report_encoding_change);
-    document.getElementById("with_headers").addEventListener("click", process_with_headers_change);
-    document.getElementById("ack_error").addEventListener("click", hide_error_msg);
-    document.getElementById("help_btn").addEventListener("click", toggle_help_msg);
-    document.getElementById("close_help").addEventListener("click", toggle_help_msg);
-    document.getElementById("toggle_history_btn").addEventListener("click", toggle_history);
-    document.getElementById("clear_history_btn").addEventListener("click", clear_history);
-    document.getElementById("go_begin").addEventListener("click", preview_begin);
-    document.getElementById("go_backward").addEventListener("click", preview_backward);
-    document.getElementById("go_forward").addEventListener("click", preview_forward);
-    document.getElementById("go_end").addEventListener("click", preview_end);
-    document.getElementById("rbql_input").addEventListener("keyup", handle_input_keyup);
-    document.getElementById("rbql_input").addEventListener("keydown", handle_input_keydown);
-    document.getElementById("udf_button").addEventListener("click", handle_udf_edit);
-    document.getElementById("rbql_input").focus();
+    el.rbql_run_btn.addEventListener("click", start_rbql);
+    el.select_backend_language.addEventListener("change", report_backend_language_change);
+    el.select_encoding.addEventListener("change", report_encoding_change);
+    el.with_headers.addEventListener("click", process_with_headers_change);
+    el.ack_error.addEventListener("click", hide_error_msg);
+    el.help_btn.addEventListener("click", toggle_help_msg);
+    el.close_help.addEventListener("click", toggle_help_msg);
+    el.toggle_history_btn.addEventListener("click", toggle_history);
+    el.clear_history_btn.addEventListener("click", clear_history);
+    el.go_begin.addEventListener("click", preview_begin);
+    el.go_backward.addEventListener("click", preview_backward);
+    el.go_forward.addEventListener("click", preview_forward);
+    el.go_end.addEventListener("click", preview_end);
+    el.rbql_input.addEventListener("keyup", handle_input_keyup);
+    el.rbql_input.addEventListener("keydown", handle_input_keydown);
+    el.udf_button.addEventListener("click", handle_udf_edit);
+    el.rbql_input.focus();
 }
 
 

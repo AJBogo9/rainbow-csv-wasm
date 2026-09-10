@@ -20,6 +20,27 @@
 * Make sure that "sticky header" feature works if enabled.
 * Make sure that "Dynamic CSV" -> "Dynamic CSV" switch from one separator to another works.
 * Run `npm run lint`
+* Run `npm run check-help` (fails if the RBQL help panel has drifted from `rbql_core/README.md`)
+
+
+### Webview assets
+The RBQL help panel in `webview/rbql_client.html` is generated from `rbql_core/README.md` between the
+`BEGIN/END GENERATED HELP` markers. Do not hand-edit that block: change the README and run `npm run build-help`.
+It used to be a hand-maintained copy and had already lost the "Supported formats" and "Pipe syntax for query
+chaining" sections.
+
+`webview/rbql_logo.png` is the shipped logo, rasterized from `webview/rbql_logo.svg` at twice its 200px display
+width. The SVG is only a wrapper around six embedded bitmaps, so it cannot be shrunk as vector art and is 122 KB;
+it stays in the repo as the source but `.vscodeignore` keeps it out of the package. To regenerate:
+```
+convert webview/rbql_logo.svg -resize 400x -background white -flatten -strip -colors 256 PNG8:webview/rbql_logo.png
+```
+
+
+### Running the integration suites
+`npm run test` launches a real VSCode, so it fails with `Cannot find module '<repo>'` when `ELECTRON_RUN_AS_NODE`
+is set in the environment (VSCode sets it for its own integrated terminal). Run it as
+`env -u ELECTRON_RUN_AS_NODE npm run test` from inside a VSCode terminal.
 
 
 ### Reading the results of the integration suites
